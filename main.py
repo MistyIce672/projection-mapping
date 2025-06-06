@@ -10,7 +10,7 @@ class OutputWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Projection Output")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1600, 1200)
         
         # Track window states
         self.is_fullscreen = False
@@ -31,6 +31,7 @@ class OutputWindow(QMainWindow):
         
         # Scale factor
         self.scale_factor = 1.0
+        self.height_stretch = 1.0  # Add height stretch factor
         
         # Create central widget and layout
         central_widget = QWidget()
@@ -51,7 +52,7 @@ class OutputWindow(QMainWindow):
         layout.addWidget(self.output_label)
         
         # Initialize with a black image
-        self.original_image = np.zeros((600, 800, 3), dtype=np.uint8)
+        self.original_image = np.zeros((1200, 1600, 3), dtype=np.uint8)
         self.update_output(self.original_image)
 
     def apply_warp(self, image, pitch, yaw, keystone_h, keystone_v, pos_x, pos_y):
@@ -166,11 +167,15 @@ class OutputWindow(QMainWindow):
             
             # Calculate the scaled dimensions based on the original image size and scale factor
             original_aspect = width / height
-            if original_aspect > 1:  # Wider than tall
-                scaled_width = int(width * self.scale_factor)
+            label_aspect = label_size.width() / label_size.height()
+            
+            if original_aspect > label_aspect:
+                # Image is wider than label
+                scaled_width = label_size.width()
                 scaled_height = int(scaled_width / original_aspect)
-            else:  # Taller than wide
-                scaled_height = int(height * self.scale_factor)
+            else:
+                # Image is taller than label
+                scaled_height = label_size.height()
                 scaled_width = int(scaled_height * original_aspect)
             
             scaled_pixmap = pixmap.scaled(
@@ -257,6 +262,7 @@ class OutputWindow(QMainWindow):
                 # Initialize video settings
                 self.video_settings[video_id] = {
                     'scale': 1.0,
+                    'height_stretch': 1.0,  # Add height stretch setting
                     'pos_x': 0,
                     'pos_y': 0
                 }
@@ -339,10 +345,12 @@ class OutputWindow(QMainWindow):
                     self.video_frames[video_id] = frame
                     self.update_combined_output()
 
-    def update_video_settings(self, video_id, scale=None, pos_x=None, pos_y=None):
+    def update_video_settings(self, video_id, scale=None, height_stretch=None, pos_x=None, pos_y=None):
         if video_id in self.video_settings:
             if scale is not None:
                 self.video_settings[video_id]['scale'] = scale
+            if height_stretch is not None:
+                self.video_settings[video_id]['height_stretch'] = height_stretch
             if pos_x is not None:
                 self.video_settings[video_id]['pos_x'] = pos_x
             if pos_y is not None:
@@ -368,7 +376,7 @@ class OutputWindow(QMainWindow):
                 
                 # Calculate scaled dimensions
                 scaled_width = int(width * settings['scale'])
-                scaled_height = int(height * settings['scale'])
+                scaled_height = int(height * settings['scale'] * settings['height_stretch'])
                 
                 # Resize frame with better quality
                 resized = cv2.resize(frame, (scaled_width, scaled_height), 
@@ -441,7 +449,7 @@ class OutputWindow(QMainWindow):
         self.video_frames.clear()
         self.videos.clear()
         # Reset to black screen
-        self.update_output(np.zeros((600, 800, 3), dtype=np.uint8))
+        self.update_output(np.zeros((1200, 1600, 3), dtype=np.uint8))
 
 class ControlWindow(QMainWindow):
     def __init__(self, output_window):
@@ -681,16 +689,16 @@ class ControlWindow(QMainWindow):
 
     def update_brightness(self, value):
         # Create a test image with the current brightness
-        image = np.ones((600, 800, 3), dtype=np.uint8) * value
+        image = np.ones((1200, 1600, 3), dtype=np.uint8) * value
         self.output_window.update_output(image)
 
     def show_test_pattern(self):
         # Create a simple test pattern
-        image = np.zeros((600, 800, 3), dtype=np.uint8)
+        image = np.zeros((1200, 1600, 3), dtype=np.uint8)
         # Draw some shapes
-        cv2.rectangle(image, (100, 100), (700, 500), (0, 255, 0), 2)
-        cv2.circle(image, (400, 300), 100, (0, 0, 255), -1)
-        cv2.putText(image, "Test Pattern", (300, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.rectangle(image, (100, 100), (1500, 1100), (0, 255, 0), 2)
+        cv2.circle(image, (800, 800), 500, (0, 0, 255), -1)
+        cv2.putText(image, "Test Pattern", (800, 500), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 4)
         self.output_window.update_output(image)
 
     def reset_slider(self, slider, default_value=0):
@@ -721,6 +729,22 @@ class ControlWindow(QMainWindow):
         scale_layout.addWidget(scale_slider)
         scale_layout.addWidget(scale_value_label)
         video_layout.addLayout(scale_layout)
+        
+        # Height stretch control
+        height_stretch_layout = QHBoxLayout()
+        height_stretch_label = QLabel("Height Stretch:")
+        height_stretch_slider = QSlider(Qt.Orientation.Horizontal)
+        height_stretch_slider.setMinimum(10)
+        height_stretch_slider.setMaximum(200)
+        height_stretch_slider.setValue(int(self.output_window.video_settings[video_id]['height_stretch'] * 100))
+        height_stretch_value_label = QLabel(f"{height_stretch_slider.value()}%")
+        height_stretch_slider.valueChanged.connect(
+            lambda v, vid=video_id, label=height_stretch_value_label: self.update_height_stretch_label(v, label, vid)
+        )
+        height_stretch_layout.addWidget(height_stretch_label)
+        height_stretch_layout.addWidget(height_stretch_slider)
+        height_stretch_layout.addWidget(height_stretch_value_label)
+        video_layout.addLayout(height_stretch_layout)
         
         # Position controls with value display
         pos_layout = QHBoxLayout()
@@ -877,6 +901,10 @@ class ControlWindow(QMainWindow):
         self.play_pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.update_video_list_display()
+
+    def update_height_stretch_label(self, value, label, video_id):
+        label.setText(f"{value}%")
+        self.output_window.update_video_settings(video_id, height_stretch=value/100.0)
 
 def main():
     app = QApplication(sys.argv)
