@@ -352,11 +352,11 @@ class OutputWindow(QMainWindow):
     def update_combined_output(self):
         if not self.video_frames:
             # No videos, show black screen
-            self.update_output(np.zeros((600, 800, 3), dtype=np.uint8))
+            self.update_output(np.zeros((1200, 1600, 3), dtype=np.uint8))
             return
 
-        # Create a black canvas
-        combined_frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        # Create a black canvas with larger dimensions
+        combined_frame = np.zeros((1200, 1600, 3), dtype=np.uint8)
         
         # Place each video according to its settings
         for video_id, frame in self.video_frames.items():
@@ -374,16 +374,9 @@ class OutputWindow(QMainWindow):
                 resized = cv2.resize(frame, (scaled_width, scaled_height), 
                                    interpolation=cv2.INTER_LANCZOS4)
                 
-                # Calculate position
-                x = settings['pos_x']
-                y = settings['pos_y']
-                
-                # Ensure the video stays within bounds
-                x = max(0, min(x, 800 - scaled_width))
-                y = max(0, min(y, 600 - scaled_height))
-                
-                # Create a mask for the resized frame
-                mask = np.ones_like(resized)
+                # Calculate position (centered in the larger frame)
+                x = settings['pos_x'] + 400  # Center offset
+                y = settings['pos_y'] + 300  # Center offset
                 
                 # Place the frame on the combined frame with alpha blending
                 try:
@@ -391,23 +384,37 @@ class OutputWindow(QMainWindow):
                     roi = combined_frame[y:y+scaled_height, x:x+scaled_width]
                     
                     # If the video is partially outside the frame, adjust the ROI
-                    if x < 0 or y < 0 or x + scaled_width > 800 or y + scaled_height > 600:
+                    if x < 0 or y < 0 or x + scaled_width > 2000 or y + scaled_height > 1600:
                         # Calculate the visible portion of the video
                         visible_x = max(0, -x)
                         visible_y = max(0, -y)
-                        visible_width = min(scaled_width, 800 - x)
-                        visible_height = min(scaled_height, 600 - y)
+                        visible_width = min(scaled_width, 2000 - x)
+                        visible_height = min(scaled_height, 1600 - y)
                         
+                        # Skip if no visible portion
+                        if visible_width <= 0 or visible_height <= 0:
+                            continue
+                            
                         # Adjust the video frame and ROI
                         resized = resized[visible_y:visible_y+visible_height, 
                                         visible_x:visible_x+visible_width]
                         roi = combined_frame[y+visible_y:y+visible_y+visible_height,
                                            x+visible_x:x+visible_x+visible_width]
-                    
-                    # Blend the video with the background
-                    alpha = 0.7  # Adjust this value to control blending
-                    combined_frame[y:y+scaled_height, x:x+scaled_width] = \
-                        cv2.addWeighted(roi, 1-alpha, resized, alpha, 0)
+                        
+                        # Ensure ROI and resized have the same dimensions
+                        if roi.shape == resized.shape:
+                            # Blend the video with the background
+                            alpha = 0.7  # Adjust this value to control blending
+                            combined_frame[y+visible_y:y+visible_y+visible_height,
+                                         x+visible_x:x+visible_x+visible_width] = \
+                                cv2.addWeighted(roi, 1-alpha, resized, alpha, 0)
+                    else:
+                        # Video is fully visible, ensure dimensions match
+                        if roi.shape == resized.shape:
+                            # Blend the video with the background
+                            alpha = 0.7  # Adjust this value to control blending
+                            combined_frame[y:y+scaled_height, x:x+scaled_width] = \
+                                cv2.addWeighted(roi, 1-alpha, resized, alpha, 0)
                         
                 except ValueError as e:
                     print(f"Error placing video {video_id}: {e}")
@@ -558,8 +565,8 @@ class ControlWindow(QMainWindow):
         pos_x_layout = QHBoxLayout()
         pos_x_label = QLabel("X Position")
         self.pos_x_slider = QSlider(Qt.Orientation.Horizontal)
-        self.pos_x_slider.setMinimum(-500)
-        self.pos_x_slider.setMaximum(500)
+        self.pos_x_slider.setMinimum(-10000)  # Increased from -2000
+        self.pos_x_slider.setMaximum(10000)   # Increased from 2000
         self.pos_x_slider.setValue(0)
         self.pos_x_slider.valueChanged.connect(self.update_warp)
         pos_x_reset = QPushButton("Reset")
@@ -573,8 +580,8 @@ class ControlWindow(QMainWindow):
         pos_y_layout = QHBoxLayout()
         pos_y_label = QLabel("Y Position")
         self.pos_y_slider = QSlider(Qt.Orientation.Horizontal)
-        self.pos_y_slider.setMinimum(-500)
-        self.pos_y_slider.setMaximum(500)
+        self.pos_y_slider.setMinimum(-10000)  # Increased from -2000
+        self.pos_y_slider.setMaximum(10000)   # Increased from 2000
         self.pos_y_slider.setValue(0)
         self.pos_y_slider.valueChanged.connect(self.update_warp)
         pos_y_reset = QPushButton("Reset")
@@ -721,8 +728,8 @@ class ControlWindow(QMainWindow):
         # X position
         x_label = QLabel("X:")
         x_slider = QSlider(Qt.Orientation.Horizontal)
-        x_slider.setMinimum(-400)
-        x_slider.setMaximum(400)
+        x_slider.setMinimum(-800)  # Increased from -2000
+        x_slider.setMaximum(800)   # Increased from 2000
         x_slider.setValue(self.output_window.video_settings[video_id]['pos_x'])
         x_value_label = QLabel(str(x_slider.value()))
         x_slider.valueChanged.connect(
@@ -735,8 +742,8 @@ class ControlWindow(QMainWindow):
         # Y position
         y_label = QLabel("Y:")
         y_slider = QSlider(Qt.Orientation.Horizontal)
-        y_slider.setMinimum(-300)
-        y_slider.setMaximum(300)
+        y_slider.setMinimum(-800)  # Increased from -2000
+        y_slider.setMaximum(800)   # Increased from 2000
         y_slider.setValue(self.output_window.video_settings[video_id]['pos_y'])
         y_value_label = QLabel(str(y_slider.value()))
         y_slider.valueChanged.connect(
